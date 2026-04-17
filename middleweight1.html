@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sleep Player LIGHT v3</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 15px; margin: 0; }
+        .val { font-size: 44px; font-weight: bold; color: #00ff00; }
+        .adj-btn { width: 64px; height: 64px; font-size: 26px; border-radius: 50%; background: #222; color: white; border: 1px solid #444; margin: 10px; }
+        #status { font-size: 14px; color: #888; margin: 10px 0; letter-spacing: 1px; height: 1.2em; text-transform: uppercase; }
+        #timeLeft { font-size: 52px; font-family: monospace; color: #00ff00; margin: 5px 0; }
+        
+        .nav-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 15px 0; }
+        .nav-btn { padding: 18px 5px; font-size: 14px; background: #1a1a1a; border: 1px solid #333; color: #aaa; border-radius: 8px; }
+        
+        #trackProgress { font-size: 20px; font-family: monospace; color: #aaa; margin-bottom: 15px; }
+
+        /* THE UPDATED DYNAMIC BOX */
+        #fileInput { display: none; }
+        .file-label { 
+            display: flex; 
+            align-items: center; 
+            justify-content: center;
+            min-height: 80px; 
+            padding: 15px; 
+            border: 2px dashed #444; 
+            border-radius: 12px; 
+            margin: 10px 0; 
+            cursor: pointer; 
+            background: #111;
+            transition: all 0.3s ease;
+        }
+        .file-label.loaded {
+            border: 2px solid #2a5a2a;
+            background: #0d1a0d;
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .arm-btn { width: 100%; padding: 25px; font-size: 24px; background: #1a3a1a; color: white; border: 2px solid #2a5a2a; border-radius: 15px; font-weight: bold; letter-spacing: 2px; }
+        .stop-btn { width: 100%; padding: 20px; font-size: 18px; background: #500; color: white; border: none; border-radius: 12px; margin-top: 10px; display: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="status">SYSTEM IDLE</div>
+    <div id="timeLeft">00:00</div>
+
+    <div style="display: flex; align-items: center; justify-content: center;">
+        <button class="adj-btn" onclick="adjustTime(-1)">-</button>
+        <span id="timeVal" class="val">12</span>
+        <button class="adj-btn" onclick="adjustTime(1)">+</button>
+    </div>
+
+    <div class="nav-grid">
+        <button class="nav-btn" onclick="seek(-600)">-10m</button>
+        <button class="nav-btn" onclick="seek(-120)">-2m</button>
+        <button class="nav-btn" onclick="seek(-15)">-15s</button>
+        <button class="nav-btn" onclick="seek(15)">+15s</button>
+        <button class="nav-btn" onclick="seek(120)">+2m</button>
+        <button class="nav-btn" onclick="seek(600)">+10m</button>
+    </div>
+
+    <div id="trackProgress">0:00 / 0:00</div>
+
+    <input type="file" id="fileInput" accept="audio/*" onchange="handleFile(this)">
+    <label for="fileInput" class="file-label" id="fileLabel">SELECT AUDIO FILE</label>
+    
+    <button id="startBtn" class="arm-btn" onclick="armSystem()">ARM</button>
+    <button id="stopBtn" class="stop-btn" onclick="stopSystem()">ABORT MISSION</button>
+
+    <script>
+        let player = new Audio();
+        let sleepMinutes = 12, targetEndTime, displayInterval, fadeInterval, masterTimer;
+        let wakeLock = null;
+
+        function adjustTime(delta) {
+            sleepMinutes = Math.max(1, sleepMinutes + delta);
+            document.getElementById('timeVal').innerText = sleepMinutes;
+        }
+
+        function seek(seconds) {
+            if (!player.src) return;
+            player.currentTime = Math.max(0, Math.min(player.duration, player.currentTime + seconds));
+            updateDisplay();
+        }
+
+        function formatTime(s) {
+            if (isNaN(s)) return "0:00";
+            let mins = Math.floor(s / 60);
+            let secs = Math.floor(s % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function handleFile(input) {
+            const file = input.files[0];
+            if (!file) return;
+            
+            player.src = URL.createObjectURL(file);
+            player.load();
+            
+            // Update the box style and text
+            const label = document.getElementById('fileLabel');
+            label.innerText = file.name;
+            label.classList.add('loaded');
+            
+            updateStatus("FILE READY", false);
+        }
+
+        async function armSystem() {
+            if (!player.src) return alert("Please select a file.");
+            try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e){}
+            
+            player.play();
+            updateStatus("SYSTEM ARMED", true);
+            
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'block';
+
+            resetTimer();
+            window.addEventListener('devicemotion', handleMotion);
+            displayInterval = setInterval(updateDisplay, 1000);
+        }
+
+        function handleMotion(e) {
+            let acc = e.accelerationIncludingGravity;
+            if (!acc) return;
+            if (acc.z < -8) stopSystem();
+            if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) resetTimer();
+        }
+
+        function resetTimer() {
+            clearTimeout(masterTimer);
+            clearInterval(fadeInterval);
+            player.volume = 1.0;
+            targetEndTime = Date.now() + (sleepMinutes * 60 * 1000);
+            updateStatus("MONITORING", true);
+            masterTimer = setTimeout(startFade, (sleepMinutes * 60 * 1000) - 30000);
+        }
+
+        function startFade() {
+            updateStatus("FADING...", false);
+            let steps = 30;
+            fadeInterval = setInterval(() => {
+                steps--;
+                player.volume = Math.max(0, steps / 30);
+                if (steps <= 0) stopSystem();
+            }, 1000);
+        }
+
+        function updateDisplay() {
+            const diff = Math.max(0, targetEndTime - Date.now());
+            const m = Math.floor(diff / 60000), s = Math.floor((diff % 60000) / 1000);
+            document.getElementById('timeLeft').innerText = `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+            document.getElementById('trackProgress').innerText = 
+                `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
+        }
+
+        function updateStatus(msg, active) {
+            const s = document.getElementById('status');
+            s.innerText = msg;
+            s.style.color = active ? "#00ff00" : "#888";
+        }
+
+        function stopSystem() {
+            player.pause();
+            clearInterval(displayInterval);
+            clearInterval(fadeInterval);
+            clearTimeout(masterTimer);
+            if (wakeLock) wakeLock.release();
+            window.removeEventListener('devicemotion', handleMotion);
+            document.getElementById('startBtn').style.display = 'block';
+            document.getElementById('stopBtn').style.display = 'none';
+            updateStatus("STOPPED", false);
+        }
+    </script>
+</body>
+</html>
