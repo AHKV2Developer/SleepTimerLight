@@ -1,5 +1,5 @@
 {
-  "name": "Audiobook Sleep Player",
+  "name": "Lightweight Sleep Timer",
   "short_name": "SleepPlayer",
   "description": "Eyes-free sleep timer for local audiobooks.",
   "start_url": "index.html",
