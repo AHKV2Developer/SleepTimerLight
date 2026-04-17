@@ -1,17 +1,5 @@
-const CACHE_NAME = 'sleep-player-v1';
-const ASSETS = [
-  'index.html',
-  'manifest.json'
-];
-
-self.addEventListener('install', (e) => {
-  e.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
-  );
-});
-
-self.addEventListener('fetch', (e) => {
-  e.respondWith(
-    caches.match(e.request).then((response) => response || fetch(e.request))
-  );
+self.addEventListener('fetch', (event) => {
+  // This is a "pass-through" service worker.
+  // It satisfies the PWA requirement without caching files.
+  event.respondWith(fetch(event.request));
 });
