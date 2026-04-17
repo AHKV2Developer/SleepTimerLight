@@ -175,6 +175,9 @@
             document.getElementById('stopBtn').style.display = 'none';
             updateStatus("STOPPED", false);
         }
+        if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
     </script>
 </body>
 </html>
